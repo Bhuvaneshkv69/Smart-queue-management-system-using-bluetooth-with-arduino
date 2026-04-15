@@ -1,0 +1,128 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+
+// LCD
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Bluetooth
+SoftwareSerial bt(6, 7);
+
+// Pins
+const int nextButton = 2;
+const int resetButton = 3;
+const int buzzer = 4;
+const int ldrPin = A0;
+
+// Variables
+int serving = 1;
+int userToken = 0;
+
+// Button states
+bool lastNextState = HIGH;
+bool lastResetState = HIGH;
+
+// LDR threshold (tune this)
+int lightThreshold = 500;
+
+void setup() {
+  lcd.init();
+  lcd.backlight();
+
+  bt.begin(9600);
+
+  pinMode(nextButton, INPUT_PULLUP);
+  pinMode(resetButton, INPUT_PULLUP);
+  pinMode(buzzer, OUTPUT);
+  pinMode(ldrPin, INPUT_PULLUP);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Order System");
+  delay(2000);
+  lcd.clear();
+}
+
+void loop() {
+
+  // 🌞 LDR READ
+  int lightValue = analogRead(ldrPin);
+  String lightStatus;
+  bool systemEnabled;
+
+  if (lightValue > lightThreshold) {
+    lightStatus = "Dark";
+    systemEnabled = false;   // ❌ system OFF
+  } else {
+    lightStatus = "Light";
+    systemEnabled = true;    // ✅ system ON
+  }
+
+  // 📱 BLUETOOTH READ
+  if (bt.available()) {
+    String data = "";
+    delay(50);
+
+    while (bt.available()) {
+      char c = bt.read();
+      if (isDigit(c)) {
+        data += c;
+      }
+    }
+
+    if (data.length() > 0) {
+      userToken = data.toInt();
+
+      bt.print("Received: ");
+      bt.println(userToken);
+    }
+  }
+
+  // 🔘 NEXT BUTTON (only if LIGHT)
+  bool currentNext = digitalRead(nextButton);
+
+  if (systemEnabled && lastNextState == HIGH && currentNext == LOW) {
+
+    serving++;
+
+    // 🔔 buzzer
+    digitalWrite(buzzer, HIGH);
+    delay(200);
+    digitalWrite(buzzer, LOW);
+
+    // 📱 notification
+    if (serving == userToken && userToken != 0) {
+      bt.println("Your order is ready!");
+      userToken = 0;
+    }
+
+    delay(200);
+  }
+
+  lastNextState = currentNext;
+
+  // 🔄 RESET BUTTON (always allowed)
+  bool currentReset = digitalRead(resetButton);
+
+  if (lastResetState == HIGH && currentReset == LOW) {
+    serving = 1;
+    userToken = 0;
+    delay(200);
+  }
+
+  lastResetState = currentReset;
+
+  // 📟 LCD DISPLAY
+  lcd.setCursor(0, 0);
+  lcd.print("Srv:");
+  lcd.print(serving);
+  lcd.print(" Nx:");
+  lcd.print(serving + 1);
+  lcd.print("   ");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Light:");
+  lcd.print(lightStatus);
+  lcd.print("   ");
+
+  delay(100);
+}
